@@ -5,6 +5,7 @@
     "module": "esnext",
     "moduleResolution": "bundler",
     "strict": true,
+    "allowImportingTsExtensions": true,
     "skipLibCheck": true,
     "types": ["bun"]
   },

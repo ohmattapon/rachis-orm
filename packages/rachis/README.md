@@ -14,6 +14,6 @@ const db = toDb(new SQL(process.env.DATABASE_URL ?? ""));
 const rows = await execute(db, query(users).select("id").toSQL());
 ```
 
-Needs Bun 1.4+, PostgreSQL, and `zod@^3` (installed automatically).
+Needs Bun 1.4+ (or Node with `pg`), PostgreSQL, and `zod@^3` (installed automatically).
 
 License: MIT.
