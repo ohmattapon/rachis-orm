@@ -84,6 +84,21 @@ const page2 = await execute<User>(
 Sort columns pass the same whitelist as everything else. Bad directions throw
 at call time, bad counts throw at call time.
 
+## Transactions
+
+Wrap several queries in one transaction with `transaction()`. Returning commits,
+throwing rolls everything back. Repositories take the `tx` object exactly like
+a normal `db`.
+
+```ts
+import { transaction } from "@internal/rachis";
+
+await transaction(sql, async (tx) => {
+  await userRepo.deactivate(tx, 1);
+  await userRepo.deactivate(tx, 2);
+});
+```
+
 ## Safety rules
 
 An `update` or `delete` without `where` throws at once. No bypass exists in v1.
