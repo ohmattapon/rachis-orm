@@ -13,10 +13,13 @@ const users = defineTable("users", z.object({ id: z.number(), firstName: z.strin
 
 run("crud smoke via real PG", async () => {
   const sql = new SQL(dbUrl);
-  await sql`drop table if exists users`;
-  await sql`create table users (id serial primary key, first_name text, age int, status text)`;
-  const ins = query(users).insert({ firstName: "A", age: 20, status: "active" }).toSQL();
-  const rows = await execute<{ id: number }>(toDb(sql), ins);
-  expect(rows.length).toBe(1);
-  await sql`drop table users`;
+  try {
+    await sql`drop table if exists users`;
+    await sql`create table users (id serial primary key, first_name text, age int, status text)`;
+    const ins = query(users).insert({ firstName: "A", age: 20, status: "active" }).toSQL();
+    const rows = await execute<{ id: number }>(toDb(sql), ins);
+    expect(rows.length).toBe(1);
+  } finally {
+    await sql`drop table if exists users`;
+  }
 });

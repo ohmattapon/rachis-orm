@@ -21,4 +21,12 @@ test("raw requires params + rejects ; -- /* + uses snake names", () => {
   expect(() => raw(users, "age > 20", []).toSQL()).toThrow();
   expect(() => raw(users, "age > $1; DROP TABLE users", [1]).toSQL()).toThrow("UnsafeRaw");
   expect(() => raw(users, "age > $1 -- x", [1]).toSQL()).toThrow("UnsafeRaw");
+  expect(() => raw(users, "age > $1 /* x", [1]).toSQL()).toThrow("UnsafeRaw");
+});
+
+test("raw rejects gapped and duplicated placeholder shapes", () => {
+  expect(() => raw(users, "age > $1 AND age < $3", [1, 2, 3]).toSQL()).toThrow("UnsafeRaw");
+  expect(() => raw(users, "age > $2", [1, 2]).toSQL()).toThrow("UnsafeRaw");
+  const q = raw(users, "age > $2 AND age < $1", [30, 18]).toSQL();
+  expect(q.params).toEqual([30, 18]);
 });

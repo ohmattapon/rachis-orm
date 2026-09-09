@@ -23,12 +23,19 @@ export function assertSafeRaw(tableName: string, sqlFragment: string, params: un
     throw new UnsafeRawError(`UnsafeRaw: fragment contains forbidden token`);
   }
   let max = 0;
+  const seen = new Set<number>();
   for (const m of sqlFragment.matchAll(/\$(\d+)/g)) {
     const n = Number(m[1]);
+    seen.add(n);
     if (n > max) max = n;
   }
   if (params.length === 0 || params.length !== max) {
     throw new UnsafeRawError(`UnsafeRaw: params length ${params.length} does not match $n max ${max}`);
+  }
+  for (let i = 1; i <= max; i++) {
+    if (!seen.has(i)) {
+      throw new UnsafeRawError(`UnsafeRaw: placeholder $${i} is missing from the fragment`);
+    }
   }
 }
 

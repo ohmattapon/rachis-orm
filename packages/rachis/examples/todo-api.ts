@@ -64,17 +64,12 @@ const server = Bun.serve({
           const patch: Record<string, unknown> = {};
           if (body.title !== undefined) patch["title"] = body.title;
           if (body.status !== undefined) patch["status"] = body.status;
-          const upd = query(todos)
-            .update(patch)
-            .where({ col: "id", op: "=", val: id })
-            .toSQL();
-          await execute<Todo>(db, upd);
-          const found = await execute<Todo>(
+          const rows = await execute<Todo>(
             db,
-            query(todos).select("id", "title", "status").where({ col: "id", op: "=", val: id }).toSQL(),
+            query(todos).update(patch).where({ col: "id", op: "=", val: id }).toSQL(),
           );
-          if (found.length === 0) return json({ error: "not found" }, 404);
-          return json(found[0]);
+          if (rows.length === 0) return json({ error: "not found" }, 404);
+          return json(rows[0]);
         }
 
         // DELETE /todos/:id

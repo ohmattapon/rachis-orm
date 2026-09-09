@@ -1,14 +1,17 @@
 export class UnknownColumnError extends Error {
   readonly code = "UnknownColumn";
-  constructor(message: string) {
+  constructor(message = "UnknownColumn: unknown column") {
     super(message);
     this.name = "UnknownColumnError";
   }
 }
 
+// Reserved for a future table registry. Raw fragments validate table names
+// with a regex today, so nothing throws this yet. Kept exported so the
+// four-error surface stays stable.
 export class UnknownTableError extends Error {
   readonly code = "UnknownTable";
-  constructor(message: string) {
+  constructor(message = "UnknownTable: unknown table") {
     super(message);
     this.name = "UnknownTableError";
   }
@@ -16,7 +19,7 @@ export class UnknownTableError extends Error {
 
 export class UnsafeFullTableError extends Error {
   readonly code = "UnsafeFullTable";
-  constructor(message: string) {
+  constructor(message = "UnsafeFullTable: refused unsafe full-table operation") {
     super(message);
     this.name = "UnsafeFullTableError";
   }
@@ -24,7 +27,7 @@ export class UnsafeFullTableError extends Error {
 
 export class UnsafeRawError extends Error {
   readonly code = "UnsafeRaw";
-  constructor(message: string) {
+  constructor(message = "UnsafeRaw: unsafe raw fragment") {
     super(message);
     this.name = "UnsafeRawError";
   }
@@ -32,7 +35,7 @@ export class UnsafeRawError extends Error {
 
 export class UnknownOperatorError extends Error {
   readonly code = "UnknownOperator";
-  constructor(message: string) {
+  constructor(message = "UnknownOperator: unknown operator") {
     super(message);
     this.name = "UnknownOperatorError";
   }

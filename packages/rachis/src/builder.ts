@@ -64,6 +64,9 @@ function buildWhere<Shape extends z.ZodRawShape>(
       }
       case "IN":
       case "NOT IN": {
+        if (w.val.length === 0) {
+          throw new Error(`${w.op} requires at least one value (empty list would emit invalid SQL)`);
+        }
         const ph = placeholders(params.length + 1 + offset, w.val.length);
         parts.push(`${col} ${w.op} (${ph.join(", ")})`);
         params.push(...w.val);
