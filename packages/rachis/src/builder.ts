@@ -144,6 +144,7 @@ export interface SelectBuilder<Shape extends z.ZodRawShape> {
   orderBy(col: keyof Shape & string, dir?: OrderDir): SelectBuilder<Shape>;
   limit(n: number): SelectBuilder<Shape>;
   offset(n: number): SelectBuilder<Shape>;
+  count(): CountBuilder;
   insert(row: RowInput<Shape>): InsertBuilder;
   update(patch: RowInput<Shape>): UpdateBuilder<Shape>;
   delete(): DeleteBuilder<Shape>;
@@ -151,6 +152,10 @@ export interface SelectBuilder<Shape extends z.ZodRawShape> {
 }
 
 export interface InsertBuilder {
+  toSQL(): BuiltQuery;
+}
+
+export interface CountBuilder {
   toSQL(): BuiltQuery;
 }
 
@@ -236,6 +241,9 @@ function createBuilder<Shape extends z.ZodRawShape>(
       }
       return next(selected, wheres, orderBys, limitVal, n);
     },
+    count(): CountBuilder {
+      return createCountBuilder(table, wheres, orGroups);
+    },
     insert(row: RowInput<Shape>): InsertBuilder {
       return createInsertBuilder(table, row);
     },
@@ -282,6 +290,21 @@ function createBuilder<Shape extends z.ZodRawShape>(
         sql += ` OFFSET $${params.length + 1}`;
         params.push(offsetVal);
       }
+      return { sql, params };
+    },
+  };
+}
+
+function createCountBuilder<Shape extends z.ZodRawShape>(
+  table: TableDef<Shape>,
+  wheres: Where<Shape>[],
+  orGroups: Where<Shape>[][] = [],
+): CountBuilder {
+  return {
+    toSQL(): BuiltQuery {
+      let sql = `SELECT COUNT(*) AS count FROM ${table.tableName}`;
+      const { text, params } = buildFilter(table, wheres, orGroups);
+      if (text) sql += ` WHERE ${text}`;
       return { sql, params };
     },
   };
