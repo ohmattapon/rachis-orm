@@ -156,8 +156,11 @@ bun run db:migrate         # apply pending files in order
 `generate` maps `id: number` to `SERIAL PRIMARY KEY`, other numbers to
 `INTEGER`, strings to `TEXT`, booleans to `BOOLEAN`, dates to `TIMESTAMPTZ`.
 Optional and nullable fields stay nullable, the rest is `NOT NULL`. A Zod
-`.default()` does not become a database default, so inserts must still send a
-value. Anything else throws instead of guessing.
+`.default()` with a static string, number, or boolean becomes a database
+`DEFAULT` (function defaults are evaluated once at generate time). Anything
+dynamic, like `() => new Date()`, throws instead of freezing a wrong value,
+so write that default into the file by hand. Anything else throws instead
+of guessing.
 
 ## Tests
 
