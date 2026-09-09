@@ -149,6 +149,7 @@ skip what is done.
 ```bash
 bun run db:new add-users   # scaffold timestamped up/down files
 bun run db:generate <tables-file>  # emit CREATE TABLE migration from Zod schemas
+bun run db:push <tables-file>      # apply schema straight to the DB, no files
 bun run db:status          # show applied vs pending
 bun run db:migrate         # apply pending files in order
 ```

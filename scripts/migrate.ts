@@ -4,12 +4,15 @@ import { pathToFileURL } from "node:url";
 import { SQL } from "bun";
 import { autoMap } from "../packages/rachis/src/schema";
 
-// Thin drizzle-kit-like runner (up + status + new + generate):
+// Thin drizzle-kit-like runner (up + status + new + generate + push):
 //   bun scripts/migrate.ts up [dir]              apply pending *.up.sql in order
 //   bun scripts/migrate.ts status [dir]          show applied vs pending
 //   bun scripts/migrate.ts new <name> [dir]      scaffold timestamped up/down files
 //   bun scripts/migrate.ts generate <tables-file> [dir]  emit CREATE TABLE migration from Zod schemas
+//   bun scripts/migrate.ts push <tables-file>    apply CREATE TABLEs straight to the DB, no files
 // Applied files are recorded in rachis_migrations, so re-runs skip them.
+// push bypasses tracking (nothing to record); generated files stay
+// IF NOT EXISTS-safe so a later up over pushed tables is a no-op.
 // No rollback engine (out of v1 scope); apply *.down.sql manually if needed.
 const dbUrl = process.env.DATABASE_URL;
 
@@ -84,6 +87,37 @@ const pgColumn = (col: string, field: unknown): string => {
   return `${name} ${base}${nullable ? "" : " NOT NULL"}${defaultClause}`;
 };
 
+interface GenTable {
+  tableName: string;
+  shape: Record<string, unknown>;
+}
+
+const collectTables = async (tablesFile: string): Promise<GenTable[]> => {
+  const mod = (await import(pathToFileURL(resolve(tablesFile)).href)) as Record<string, unknown>;
+  const tables = Object.values(mod).filter(
+    (v): v is { tableName: string; schema: { shape: Record<string, unknown> } } =>
+      !!v &&
+      typeof v === "object" &&
+      typeof (v as { tableName?: unknown }).tableName === "string" &&
+      !!(v as { schema?: { shape?: unknown } }).schema?.shape,
+  );
+  if (tables.length === 0) {
+    throw new Error(`no tables found in ${tablesFile} (export defineTable(...) results)`);
+  }
+  return tables.map((t) => ({ tableName: t.tableName, shape: t.schema.shape }));
+};
+
+const createStmts = (tables: GenTable[]): { ups: string[]; downs: string[] } => {
+  const ups: string[] = [];
+  const downs: string[] = [];
+  for (const t of tables) {
+    const cols = Object.entries(t.shape).map(([col, field]) => `  ${pgColumn(col, field)}`);
+    ups.push(`CREATE TABLE IF NOT EXISTS "${t.tableName}" (\n${cols.join(",\n")}\n);`);
+    downs.push(`DROP TABLE IF EXISTS "${t.tableName}";`);
+  }
+  return { ups, downs };
+};
+
 const sql = new SQL(dbUrl ?? "");
 try {
   if (cmd === "new") {
@@ -121,31 +155,23 @@ try {
       const tablesFile = arg;
       const outDir = argDir ?? "migrations";
       if (!tablesFile) throw new Error("Usage: migrate.ts generate <tables-file> [dir]");
-      const mod = (await import(pathToFileURL(resolve(tablesFile)).href)) as Record<string, unknown>;
-      const tables = Object.values(mod).filter(
-        (v): v is { tableName: string; schema: { shape: Record<string, unknown> } } =>
-          !!v &&
-          typeof v === "object" &&
-          typeof (v as { tableName?: unknown }).tableName === "string" &&
-          !!(v as { schema?: { shape?: unknown } }).schema?.shape,
-      );
-      if (tables.length === 0) {
-        throw new Error(`no tables found in ${tablesFile} (export defineTable(...) results)`);
-      }
-      const ups: string[] = [];
-      const downs: string[] = [];
-      for (const t of tables) {
-        const cols = Object.entries(t.schema.shape).map(([col, field]) => `  ${pgColumn(col, field)}`);
-        ups.push(`CREATE TABLE IF NOT EXISTS "${t.tableName}" (\n${cols.join(",\n")}\n);`);
-        downs.push(`DROP TABLE IF EXISTS "${t.tableName}";`);
-      }
+      const tables = await collectTables(tablesFile);
+      const { ups, downs } = createStmts(tables);
       const base = `${stamp()}_generated`;
       const header = `-- generated from ${tablesFile} -- review before applying\n-- id: number -> SERIAL PRIMARY KEY; number -> INTEGER; string -> TEXT; boolean -> BOOLEAN; date -> TIMESTAMPTZ; optional/nullable -> nullable, else NOT NULL; .default(literal) -> DB DEFAULT\n`;
       await writeFile(join(outDir, `${base}.up.sql`), `${header}${ups.join("\n")}\n`);
       await writeFile(join(outDir, `${base}.down.sql`), `${downs.join("\n")}\n`);
       console.log(`created ${base}.up.sql + ${base}.down.sql (${tables.length} tables)`);
+    } else if (cmd === "push") {
+      const tablesFile = arg;
+      if (!tablesFile) throw new Error("Usage: migrate.ts push <tables-file>");
+      if (!dbUrl) throw new Error("DATABASE_URL is not set (needed for push)");
+      const tables = await collectTables(tablesFile);
+      const { ups } = createStmts(tables);
+      for (const stmt of ups) await sql.unsafe(stmt);
+      console.log(`pushed ${tables.length} tables (${tables.map((t) => t.tableName).join(", ")})`);
     } else {
-      throw new Error(`unknown command: ${cmd} (use up|status|new|generate)`);
+      throw new Error(`unknown command: ${cmd} (use up|status|new|generate|push)`);
     }
   }
 } finally {
