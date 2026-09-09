@@ -141,6 +141,7 @@ export interface SelectBuilder<Shape extends z.ZodRawShape> {
   where(clause: Where<Shape>): SelectBuilder<Shape>;
   orWhere(clauses: Where<Shape>[]): SelectBuilder<Shape>;
   join<J extends z.ZodRawShape>(table: TableDef<J>, spec: Omit<JoinSpec<Shape, J>, "table">): SelectBuilder<Shape>;
+  with(name: string, cols?: readonly string[]): SelectBuilder<Shape>;
   orderBy(col: keyof Shape & string, dir?: OrderDir): SelectBuilder<Shape>;
   limit(n: number): SelectBuilder<Shape>;
   offset(n: number): SelectBuilder<Shape>;
@@ -221,6 +222,19 @@ function createBuilder<Shape extends z.ZodRawShape>(
           on: spec.on.map((o) => ({ left: o.left as string, right: o.right as string })),
           select: spec.select.map((c) => c as string),
         },
+      ]);
+    },
+    with(name: string, cols?: readonly string[]): SelectBuilder<Shape> {
+      // Fails fast on an unknown relation name; column validation happens in toSQL().
+      const rel = table.relation(name);
+      const on =
+        rel.type === "many"
+          ? { left: rel.ref, right: rel.fk }
+          : { left: rel.fk, right: rel.ref };
+      const relSelect = cols !== undefined ? [...cols] : [...rel.table.columns];
+      return next(selected, wheres, orderBys, limitVal, offsetVal, orGroups, [
+        ...joins,
+        { table: rel.table, type: "LEFT", on: [on], select: relSelect },
       ]);
     },
     orderBy(col: keyof Shape & string, dir: OrderDir = "ASC"): SelectBuilder<Shape> {

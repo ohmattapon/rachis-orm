@@ -40,3 +40,11 @@ export class UnknownOperatorError extends Error {
     this.name = "UnknownOperatorError";
   }
 }
+
+export class UnknownRelationError extends Error {
+  readonly code = "UnknownRelation";
+  constructor(message = "UnknownRelation: unknown relation") {
+    super(message);
+    this.name = "UnknownRelationError";
+  }
+}
