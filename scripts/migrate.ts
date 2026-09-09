@@ -27,17 +27,42 @@ const stamp = (): string => {
 //   number                -> INTEGER      string -> TEXT
 //   boolean               -> BOOLEAN      date   -> TIMESTAMPTZ
 //   .optional()/.nullable()/.nullish() -> nullable, otherwise NOT NULL
+//   .default(literal)     -> DB DEFAULT for string/number/boolean literals
 // Anything else throws instead of guessing.
 const pgColumn = (col: string, field: unknown): string => {
   const name = `"${autoMap(col)}"`;
-  let t = field as { _def?: { typeName?: string; innerType?: unknown } };
+  let t = field as { _def?: { typeName?: string; innerType?: unknown; defaultValue?: unknown } };
   let nullable = false;
+  let defaultClause = "";
   for (;;) {
     const tn = t?._def?.typeName;
     if (tn === "ZodOptional" || tn === "ZodNullable") {
       nullable = true;
       t = t._def.innerType as typeof t;
     } else if (tn === "ZodDefault") {
+      // zod v3 stores defaults as thunks, so call once to read the value.
+      // Only static literals survive: dynamic results (Date, nanoid, ...)
+      // throw instead of freezing a wrong value into DDL.
+      let dv: unknown = (t._def as { defaultValue?: unknown }).defaultValue;
+      if (typeof dv === "function") {
+        try {
+          dv = (dv as () => unknown)();
+        } catch {
+          throw new Error(`generate: default on column "${col}" threw when evaluated (edit the file)`);
+        }
+      }
+      if (typeof dv === "string") {
+        defaultClause = ` DEFAULT '${dv.replace(/'/g, "''")}'`;
+      } else if (typeof dv === "number") {
+        if (!Number.isFinite(dv)) {
+          throw new Error(`generate: non-finite default on column "${col}" (edit the file)`);
+        }
+        defaultClause = ` DEFAULT ${dv}`;
+      } else if (typeof dv === "boolean") {
+        defaultClause = ` DEFAULT ${dv ? "TRUE" : "FALSE"}`;
+      } else {
+        throw new Error(`generate: unsupported default on column "${col}" (edit the file)`);
+      }
       t = t._def.innerType as typeof t;
     } else {
       break;
@@ -56,7 +81,7 @@ const pgColumn = (col: string, field: unknown): string => {
             ? "TIMESTAMPTZ"
             : null;
   if (!base) throw new Error(`generate: unsupported type ${tn ?? typeof field} on column "${col}"`);
-  return `${name} ${base}${nullable ? "" : " NOT NULL"}`;
+  return `${name} ${base}${nullable ? "" : " NOT NULL"}${defaultClause}`;
 };
 
 const sql = new SQL(dbUrl ?? "");
@@ -115,7 +140,7 @@ try {
         downs.push(`DROP TABLE IF EXISTS "${t.tableName}";`);
       }
       const base = `${stamp()}_generated`;
-      const header = `-- generated from ${tablesFile} -- review before applying\n-- id: number -> SERIAL PRIMARY KEY; number -> INTEGER; string -> TEXT; boolean -> BOOLEAN; date -> TIMESTAMPTZ; optional/nullable -> nullable, else NOT NULL\n`;
+      const header = `-- generated from ${tablesFile} -- review before applying\n-- id: number -> SERIAL PRIMARY KEY; number -> INTEGER; string -> TEXT; boolean -> BOOLEAN; date -> TIMESTAMPTZ; optional/nullable -> nullable, else NOT NULL; .default(literal) -> DB DEFAULT\n`;
       await writeFile(join(outDir, `${base}.up.sql`), `${header}${ups.join("\n")}\n`);
       await writeFile(join(outDir, `${base}.down.sql`), `${downs.join("\n")}\n`);
       console.log(`created ${base}.up.sql + ${base}.down.sql (${tables.length} tables)`);
