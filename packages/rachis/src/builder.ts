@@ -41,6 +41,7 @@ function buildWhere<Shape extends z.ZodRawShape>(
   table: TableDef<Shape>,
   wheres: Where<Shape>[],
   offset = 0,
+  joiner = " AND ",
 ): { clause: string; params: unknown[] } {
   const parts: string[] = [];
   const params: unknown[] = [];
@@ -76,8 +77,31 @@ function buildWhere<Shape extends z.ZodRawShape>(
       }
     }
   }
-  return { clause: parts.join(" AND "), params };
+  return { clause: parts.join(joiner), params };
 }
+
+function buildFilter<Shape extends z.ZodRawShape>(
+  table: TableDef<Shape>,
+  wheres: Where<Shape>[],
+  orGroups: Where<Shape>[][],
+  baseOffset = 0,
+): { text: string; params: unknown[] } {
+  const { clause, params } = buildWhere(table, wheres, baseOffset);
+  const parts = clause ? [clause] : [];
+  const all = [...params];
+  for (const g of orGroups) {
+    const r = buildWhere(table, g, baseOffset + all.length, " OR ");
+    parts.push(`(${r.clause})`);
+    all.push(...r.params);
+  }
+  return { text: parts.join(" AND "), params: all };
+}
+
+const requireNonEmptyGroup = (clauses: unknown[]): void => {
+  if (clauses.length === 0) {
+    throw new Error("orWhere requires at least one condition");
+  }
+};
 
 export type RowInput<Shape extends z.ZodRawShape> = Partial<Record<keyof Shape & string, unknown>>;
 
@@ -91,6 +115,7 @@ export interface OrderClause<Shape extends z.ZodRawShape> {
 export interface SelectBuilder<Shape extends z.ZodRawShape> {
   select(...cols: (keyof Shape & string)[]): SelectBuilder<Shape>;
   where(clause: Where<Shape>): SelectBuilder<Shape>;
+  orWhere(clauses: Where<Shape>[]): SelectBuilder<Shape>;
   orderBy(col: keyof Shape & string, dir?: OrderDir): SelectBuilder<Shape>;
   limit(n: number): SelectBuilder<Shape>;
   offset(n: number): SelectBuilder<Shape>;
@@ -106,11 +131,13 @@ export interface InsertBuilder {
 
 export interface UpdateBuilder<Shape extends z.ZodRawShape> {
   where(clause: Where<Shape>): UpdateBuilder<Shape>;
+  orWhere(clauses: Where<Shape>[]): UpdateBuilder<Shape>;
   toSQL(): BuiltQuery;
 }
 
 export interface DeleteBuilder<Shape extends z.ZodRawShape> {
   where(clause: Where<Shape>): DeleteBuilder<Shape>;
+  orWhere(clauses: Where<Shape>[]): DeleteBuilder<Shape>;
   toSQL(): BuiltQuery;
 }
 
@@ -125,6 +152,7 @@ function createBuilder<Shape extends z.ZodRawShape>(
   orderBys: OrderClause<Shape>[] = [],
   limitVal?: number,
   offsetVal?: number,
+  orGroups: Where<Shape>[][] = [],
 ): SelectBuilder<Shape> {
   const next = (
     selectedNext: (keyof Shape & string)[],
@@ -132,13 +160,19 @@ function createBuilder<Shape extends z.ZodRawShape>(
     orderBysNext: OrderClause<Shape>[] = orderBys,
     limitNext: number | undefined = limitVal,
     offsetNext: number | undefined = offsetVal,
-  ): SelectBuilder<Shape> => createBuilder(table, selectedNext, wheresNext, orderBysNext, limitNext, offsetNext);
+    orGroupsNext: Where<Shape>[][] = orGroups,
+  ): SelectBuilder<Shape> =>
+    createBuilder(table, selectedNext, wheresNext, orderBysNext, limitNext, offsetNext, orGroupsNext);
   return {
     select(...cols: (keyof Shape & string)[]): SelectBuilder<Shape> {
       return next([...selected, ...cols], wheres);
     },
     where(clause: Where<Shape>): SelectBuilder<Shape> {
       return next(selected, [...wheres, clause]);
+    },
+    orWhere(clauses: Where<Shape>[]): SelectBuilder<Shape> {
+      requireNonEmptyGroup(clauses);
+      return next(selected, wheres, orderBys, limitVal, offsetVal, [...orGroups, clauses]);
     },
     orderBy(col: keyof Shape & string, dir: OrderDir = "ASC"): SelectBuilder<Shape> {
       if (dir !== "ASC" && dir !== "DESC") {
@@ -171,8 +205,8 @@ function createBuilder<Shape extends z.ZodRawShape>(
       for (const c of selected) table.assertColumn(c);
       const selectList = selected.length === 0 ? "*" : selected.map((c) => table.sqlColumn(c)).join(", ");
       let sql = `SELECT ${selectList} FROM ${table.tableName}`;
-      const { clause, params } = buildWhere(table, wheres);
-      if (clause) sql += ` WHERE ${clause}`;
+      const { text, params } = buildFilter(table, wheres, orGroups);
+      if (text) sql += ` WHERE ${text}`;
       if (orderBys.length > 0) {
         sql += ` ORDER BY ${orderBys.map((o) => `${table.sqlColumn(o.col)} ${o.dir}`).join(", ")}`;
       }
@@ -214,24 +248,29 @@ function createUpdateBuilder<Shape extends z.ZodRawShape>(
   table: TableDef<Shape>,
   patch: RowInput<Shape>,
   wheres: Where<Shape>[],
+  orGroups: Where<Shape>[][] = [],
 ): UpdateBuilder<Shape> {
   return {
     where(clause: Where<Shape>): UpdateBuilder<Shape> {
-      return createUpdateBuilder(table, patch, [...wheres, clause]);
+      return createUpdateBuilder(table, patch, [...wheres, clause], orGroups);
+    },
+    orWhere(clauses: Where<Shape>[]): UpdateBuilder<Shape> {
+      requireNonEmptyGroup(clauses);
+      return createUpdateBuilder(table, patch, wheres, [...orGroups, clauses]);
     },
     toSQL(): BuiltQuery {
       const keys = Object.keys(patch) as (keyof Shape & string)[];
       if (keys.length === 0) {
         throw new UnsafeFullTableError(`UnsafeFullTable: update on ${table.tableName} with empty patch is not allowed`);
       }
-      if (wheres.length === 0) {
+      if (wheres.length === 0 && orGroups.length === 0) {
         throw new UnsafeFullTableError(`UnsafeFullTable: update on ${table.tableName} without where is not allowed`);
       }
       const setParts = keys.map((k, i) => `${table.sqlColumn(k)} = $${i + 1}`);
       const setParams = keys.map((k) => patch[k]);
-      const { clause, params: whereParams } = buildWhere(table, wheres, setParams.length);
+      const { text, params: whereParams } = buildFilter(table, wheres, orGroups, setParams.length);
       return {
-        sql: `UPDATE ${table.tableName} SET ${setParts.join(", ")} WHERE ${clause} RETURNING *`,
+        sql: `UPDATE ${table.tableName} SET ${setParts.join(", ")} WHERE ${text} RETURNING *`,
         params: [...setParams, ...whereParams],
       };
     },
@@ -241,17 +280,22 @@ function createUpdateBuilder<Shape extends z.ZodRawShape>(
 function createDeleteBuilder<Shape extends z.ZodRawShape>(
   table: TableDef<Shape>,
   wheres: Where<Shape>[],
+  orGroups: Where<Shape>[][] = [],
 ): DeleteBuilder<Shape> {
   return {
     where(clause: Where<Shape>): DeleteBuilder<Shape> {
-      return createDeleteBuilder(table, [...wheres, clause]);
+      return createDeleteBuilder(table, [...wheres, clause], orGroups);
+    },
+    orWhere(clauses: Where<Shape>[]): DeleteBuilder<Shape> {
+      requireNonEmptyGroup(clauses);
+      return createDeleteBuilder(table, wheres, [...orGroups, clauses]);
     },
     toSQL(): BuiltQuery {
-      if (wheres.length === 0) {
+      if (wheres.length === 0 && orGroups.length === 0) {
         throw new UnsafeFullTableError(`UnsafeFullTable: delete on ${table.tableName} without where is not allowed`);
       }
-      const { clause, params } = buildWhere(table, wheres);
-      return { sql: `DELETE FROM ${table.tableName} WHERE ${clause}`, params };
+      const { text, params } = buildFilter(table, wheres, orGroups);
+      return { sql: `DELETE FROM ${table.tableName} WHERE ${text}`, params };
     },
   };
 }

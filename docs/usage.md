@@ -32,7 +32,27 @@ type User = z.infer<typeof userSchema>;
 
 ### 3. Build queries, then run them
 
-Building and running stay separate. Calling `.where()` more than once means AND.
+Building and running stay separate. Calling `.where()` more than once means
+AND. For OR, pass a group to `.orWhere()` instead. Each group is parenthesized,
+and groups AND together with the rest.
+
+```ts
+const kidsAndSeniors = await execute<User>(
+  db,
+  query(users)
+    .select("id", "firstName")
+    .where({ col: "status", op: "=", val: "active" })
+    .orWhere([
+      { col: "age", op: "<", val: 18 },
+      { col: "age", op: ">", val: 60 },
+    ])
+    .toSQL(),
+);
+// ... WHERE status = $1 AND (age < $2 OR age > $3)
+```
+
+`orWhere()` works on `update` and `delete` as well. An empty group throws
+at call time.
 
 ```ts
 import { SQL } from "bun";
