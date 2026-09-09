@@ -61,3 +61,44 @@ test("orderBy unknown col throws, limit/offset/dir validated", () => {
   expect(b2).not.toBe(b);
   expect(b2.toSQL().sql).toBe("SELECT id FROM users LIMIT $1");
 });
+
+test("orWhere groups parenthesize with continued params", () => {
+  const q = query(users)
+    .select("id")
+    .where({ col: "status", op: "=", val: "active" })
+    .orWhere([
+      { col: "age", op: "<", val: 18 },
+      { col: "age", op: ">", val: 60 },
+    ])
+    .toSQL();
+  expect(q.sql).toBe("SELECT id FROM users WHERE status = $1 AND (age < $2 OR age > $3)");
+  expect(q.params).toEqual(["active", 18, 60]);
+});
+
+test("multiple orWhere groups AND together, or-only works, empty throws", () => {
+  const q = query(users)
+    .select("id")
+    .orWhere([{ col: "status", op: "=", val: "a" }])
+    .orWhere([
+      { col: "id", op: "=", val: 1 },
+      { col: "id", op: "=", val: 2 },
+    ])
+    .toSQL();
+  expect(q.sql).toBe("SELECT id FROM users WHERE (status = $1) AND (id = $2 OR id = $3)");
+  const b = query(users).select("id");
+  expect(() => b.orWhere([])).toThrow();
+  const b2 = b.orWhere([{ col: "id", op: "=", val: 1 }]);
+  expect(b2).not.toBe(b);
+});
+
+test("orWhere on update shares numbering after SET", () => {
+  const q = query(users)
+    .update({ status: "x" })
+    .orWhere([
+      { col: "id", op: "=", val: 1 },
+      { col: "id", op: "=", val: 2 },
+    ])
+    .toSQL();
+  expect(q.sql).toBe("UPDATE users SET status = $1 WHERE (id = $2 OR id = $3) RETURNING *");
+  expect(q.params).toEqual(["x", 1, 2]);
+});
