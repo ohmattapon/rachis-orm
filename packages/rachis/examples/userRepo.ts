@@ -1,8 +1,10 @@
 import { z } from "zod";
-import { SQL } from "bun";
 import { defineTable } from "../src/schema";
 import { query } from "../src/builder";
 import { execute, type Db } from "../src/executor";
+import { toDb } from "../src/adapter";
+
+export { toDb };
 
 const userSchema = z.object({
   id: z.number(),
@@ -15,17 +17,7 @@ export const users = defineTable("users", userSchema);
 
 export type User = z.infer<typeof userSchema>;
 
-// Tiny adapter: real Bun.sql driver -> Db interface.
-// Db.query is NON-generic by design (execute<T> casts internally),
-// Bun SQL instances expose .unsafe(sql, params) instead of .query.
-export function toDb(sql: SQL): Db {
-  return {
-    query: async (text: string, params: unknown[]): Promise<unknown[]> => {
-      const rows = await sql.unsafe(text, params);
-      return rows as unknown[];
-    },
-  };
-}
+// Tiny adapter lives in src/adapter.ts (re-exported above for compat).
 
 export const userRepo = {
   findActiveAdults: (db: Db) =>
