@@ -181,3 +181,30 @@ DATABASE_URL="<url>" bun test packages/rachis/tests/integration/
 `POST /todos`, `GET /todos?status=active&q=foo`, `PATCH /todos/:id`,
 `DELETE /todos/:id`, plus `GET /guard-demo` showing a whereless update getting
 blocked.
+
+## Observability
+
+Wrap any `Db` (or transaction handle) with `withLogging()` to record every
+query with its SQL, params, and duration. Entries fire on failures too, so
+broken queries never go silent. Slow-query detection stays on your side.
+
+```ts
+import { withLogging } from "@internal/rachis";
+
+const db = withLogging(toDb(sql), (entry) => {
+  if (entry.durationMs > 100) console.warn("slow query", entry);
+  if (entry.error) console.error("failed query", entry);
+});
+```
+
+Rachis sets no timeouts itself. Cap runaway queries at the connection level
+instead, either in the URL or on the role.
+
+```bash
+DATABASE_URL="postgres://user:pass@host/db?sslmode=require&options=-c%20statement_timeout%3D5s"
+```
+
+```sql
+ALTER ROLE app LOGIN;
+ALTER DATABASE appdb SET statement_timeout = '5s';
+```

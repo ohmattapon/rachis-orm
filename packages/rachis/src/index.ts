@@ -3,3 +3,4 @@ export * from "./schema";
 export * from "./builder";
 export * from "./executor";
 export * from "./adapter";
+export * from "./logging";
