@@ -103,6 +103,28 @@ test("orWhere on update shares numbering after SET", () => {
   expect(q.params).toEqual(["x", 1, 2]);
 });
 
+test("empty IN/NOT IN throws instead of emitting IN ()", () => {
+  const b = query(users).select("id");
+  expect(() => b.where({ col: "id", op: "IN", val: [] }).toSQL()).toThrow();
+  expect(() => b.where({ col: "id", op: "NOT IN", val: [] }).toSQL()).toThrow();
+});
+
+test("select() calls append, wide operators render exact SQL", () => {
+  const q = query(users)
+    .select("id")
+    .select("firstName")
+    .where({ col: "id", op: "!=", val: 1 })
+    .where({ col: "age", op: ">=", val: 18 })
+    .where({ col: "status", op: "NOT LIKE", val: "%x%" })
+    .where({ col: "id", op: "NOT IN", val: [2, 3] })
+    .where({ col: "deletedAt", op: "IS NOT NULL" })
+    .toSQL();
+  expect(q.sql).toBe(
+    "SELECT id, first_name FROM users WHERE id != $1 AND age >= $2 AND status NOT LIKE $3 AND id NOT IN ($4, $5) AND deleted_at IS NOT NULL",
+  );
+  expect(q.params).toEqual([1, 18, "%x%", 2, 3]);
+});
+
 const posts = defineTable(
   "posts",
   z.object({ id: z.number(), userId: z.number(), title: z.string() }),

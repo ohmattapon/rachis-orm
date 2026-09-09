@@ -149,7 +149,9 @@ query(users).update({ status: "x" }).toSQL(); // UnsafeFullTableError
 
 A column missing from the schema cannot be used. It throws `UnknownColumnError`
 while building, before anything reaches the database. Every value travels as a
-param, so a string like `' OR '1'='1` stays an ordinary comparison value.
+param, so a string like `' OR '1'='1` stays an ordinary comparison value. One
+thing to know about `LIKE`: `%` and `_` in the input still act as wildcards,
+so escape them yourself when the input comes from a search box.
 
 `raw()` covers what the builder cannot express, such as OR conditions. It takes
 DB-side names, requires params every time, rejects `;` `--` `/*`, and checks
