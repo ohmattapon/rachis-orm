@@ -128,6 +128,9 @@ function createInsertBuilder<Shape extends z.ZodRawShape>(
   return {
     toSQL(): BuiltQuery {
       const keys = Object.keys(row) as (keyof Shape & string)[];
+      if (keys.length === 0) {
+        throw new UnsafeFullTableError(`UnsafeFullTable: insert on ${table.tableName} with empty row is not allowed`);
+      }
       const cols = keys.map((k) => table.sqlColumn(k));
       const vals = keys.map((k) => row[k]);
       const ph = placeholders(1, keys.length);
@@ -149,10 +152,13 @@ function createUpdateBuilder<Shape extends z.ZodRawShape>(
       return createUpdateBuilder(table, patch, [...wheres, clause]);
     },
     toSQL(): BuiltQuery {
+      const keys = Object.keys(patch) as (keyof Shape & string)[];
+      if (keys.length === 0) {
+        throw new UnsafeFullTableError(`UnsafeFullTable: update on ${table.tableName} with empty patch is not allowed`);
+      }
       if (wheres.length === 0) {
         throw new UnsafeFullTableError(`UnsafeFullTable: update on ${table.tableName} without where is not allowed`);
       }
-      const keys = Object.keys(patch) as (keyof Shape & string)[];
       const setParts = keys.map((k, i) => `${table.sqlColumn(k)} = $${i + 1}`);
       const setParams = keys.map((k) => patch[k]);
       const { clause, params: whereParams } = buildWhere(table, wheres, setParams.length);
