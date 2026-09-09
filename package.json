@@ -7,6 +7,7 @@
     "db:migrate": "bun scripts/migrate.ts up",
     "db:status": "bun scripts/migrate.ts status",
     "db:new": "bun scripts/migrate.ts new",
-    "db:generate": "bun scripts/migrate.ts generate"
+    "db:generate": "bun scripts/migrate.ts generate",
+    "db:push": "bun scripts/migrate.ts push"
   }
 }
