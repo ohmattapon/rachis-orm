@@ -102,3 +102,53 @@ test("orWhere on update shares numbering after SET", () => {
   expect(q.sql).toBe("UPDATE users SET status = $1 WHERE (id = $2 OR id = $3) RETURNING *");
   expect(q.params).toEqual(["x", 1, 2]);
 });
+
+const posts = defineTable(
+  "posts",
+  z.object({ id: z.number(), userId: z.number(), title: z.string() }),
+);
+
+test("LEFT JOIN qualifies cols, aliases joined selects, numbers params", () => {
+  const q = query(users)
+    .select("id", "firstName")
+    .join(posts, { type: "LEFT", on: [{ left: "id", right: "userId" }], select: ["title"] })
+    .where({ col: "status", op: "=", val: "active" })
+    .toSQL();
+  expect(q.sql).toBe(
+    "SELECT users.id, users.first_name, posts.title AS posts_title FROM users LEFT JOIN posts ON users.id = posts.user_id WHERE status = $1",
+  );
+  expect(q.params).toEqual(["active"]);
+});
+
+test("INNER JOIN with multi-condition ON, default base star, second join", () => {
+  const q = query(users)
+    .join(posts, {
+      type: "INNER",
+      on: [
+        { left: "id", right: "userId" },
+        { left: "status", right: "title" },
+      ],
+      select: [],
+    })
+    .toSQL();
+  expect(q.sql).toBe(
+    "SELECT users.* FROM users INNER JOIN posts ON users.id = posts.user_id AND users.status = posts.title",
+  );
+});
+
+test("join rejects bad type, empty ON, unknown cols, and is immutable", () => {
+  const b = query(users).select("id");
+  expect(() => b.join(posts, { type: "FULL" as never, on: [{ left: "id", right: "userId" }], select: [] })).toThrow(
+    "UnknownOperator",
+  );
+  expect(() => b.join(posts, { type: "LEFT", on: [], select: [] })).toThrow();
+  expect(() =>
+    b.join(posts, { type: "LEFT", on: [{ left: "id", right: "nope" as never }], select: [] }).toSQL(),
+  ).toThrow("UnknownColumn");
+  expect(() =>
+    b.join(posts, { type: "LEFT", on: [{ left: "id", right: "userId" }], select: ["nope" as never] }).toSQL(),
+  ).toThrow("UnknownColumn");
+  const b2 = b.join(posts, { type: "LEFT", on: [{ left: "id", right: "userId" }], select: ["title"] });
+  expect(b2).not.toBe(b);
+  expect(b.toSQL().sql).toBe("SELECT id FROM users");
+});

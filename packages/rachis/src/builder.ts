@@ -112,10 +112,32 @@ export interface OrderClause<Shape extends z.ZodRawShape> {
   dir: OrderDir;
 }
 
+export type JoinType = "INNER" | "LEFT";
+
+export interface JoinOn<BShape extends z.ZodRawShape, JShape extends z.ZodRawShape> {
+  left: keyof BShape & string;
+  right: keyof JShape & string;
+}
+
+export interface JoinSpec<BShape extends z.ZodRawShape, JShape extends z.ZodRawShape> {
+  table: TableDef<JShape>;
+  type: JoinType;
+  on: JoinOn<BShape, JShape>[];
+  select: (keyof JShape & string)[];
+}
+
+interface StoredJoin {
+  table: TableDef<z.ZodRawShape>;
+  type: JoinType;
+  on: { left: string; right: string }[];
+  select: string[];
+}
+
 export interface SelectBuilder<Shape extends z.ZodRawShape> {
   select(...cols: (keyof Shape & string)[]): SelectBuilder<Shape>;
   where(clause: Where<Shape>): SelectBuilder<Shape>;
   orWhere(clauses: Where<Shape>[]): SelectBuilder<Shape>;
+  join<J extends z.ZodRawShape>(table: TableDef<J>, spec: Omit<JoinSpec<Shape, J>, "table">): SelectBuilder<Shape>;
   orderBy(col: keyof Shape & string, dir?: OrderDir): SelectBuilder<Shape>;
   limit(n: number): SelectBuilder<Shape>;
   offset(n: number): SelectBuilder<Shape>;
@@ -153,6 +175,7 @@ function createBuilder<Shape extends z.ZodRawShape>(
   limitVal?: number,
   offsetVal?: number,
   orGroups: Where<Shape>[][] = [],
+  joins: StoredJoin[] = [],
 ): SelectBuilder<Shape> {
   const next = (
     selectedNext: (keyof Shape & string)[],
@@ -161,8 +184,9 @@ function createBuilder<Shape extends z.ZodRawShape>(
     limitNext: number | undefined = limitVal,
     offsetNext: number | undefined = offsetVal,
     orGroupsNext: Where<Shape>[][] = orGroups,
+    joinsNext: StoredJoin[] = joins,
   ): SelectBuilder<Shape> =>
-    createBuilder(table, selectedNext, wheresNext, orderBysNext, limitNext, offsetNext, orGroupsNext);
+    createBuilder(table, selectedNext, wheresNext, orderBysNext, limitNext, offsetNext, orGroupsNext, joinsNext);
   return {
     select(...cols: (keyof Shape & string)[]): SelectBuilder<Shape> {
       return next([...selected, ...cols], wheres);
@@ -173,6 +197,23 @@ function createBuilder<Shape extends z.ZodRawShape>(
     orWhere(clauses: Where<Shape>[]): SelectBuilder<Shape> {
       requireNonEmptyGroup(clauses);
       return next(selected, wheres, orderBys, limitVal, offsetVal, [...orGroups, clauses]);
+    },
+    join<J extends z.ZodRawShape>(joinTable: TableDef<J>, spec: Omit<JoinSpec<Shape, J>, "table">): SelectBuilder<Shape> {
+      if (spec.type !== "INNER" && spec.type !== "LEFT") {
+        throw new UnknownOperatorError(`UnknownOperator: ${String(spec.type)} is not a valid join type`);
+      }
+      if (spec.on.length === 0) {
+        throw new Error("join requires at least one ON condition");
+      }
+      return next(selected, wheres, orderBys, limitVal, offsetVal, orGroups, [
+        ...joins,
+        {
+          table: joinTable as TableDef<z.ZodRawShape>,
+          type: spec.type,
+          on: spec.on.map((o) => ({ left: o.left as string, right: o.right as string })),
+          select: spec.select.map((c) => c as string),
+        },
+      ]);
     },
     orderBy(col: keyof Shape & string, dir: OrderDir = "ASC"): SelectBuilder<Shape> {
       if (dir !== "ASC" && dir !== "DESC") {
@@ -203,8 +244,28 @@ function createBuilder<Shape extends z.ZodRawShape>(
     },
     toSQL(): BuiltQuery {
       for (const c of selected) table.assertColumn(c);
-      const selectList = selected.length === 0 ? "*" : selected.map((c) => table.sqlColumn(c)).join(", ");
-      let sql = `SELECT ${selectList} FROM ${table.tableName}`;
+      const q = (t: TableDef<z.ZodRawShape>, c: string): string => `${t.tableName}.${t.sqlColumn(c)}`;
+      const baseList =
+        joins.length === 0
+          ? [selected.length === 0 ? "*" : selected.map((c) => table.sqlColumn(c)).join(", ")]
+          : [
+              selected.length === 0
+                ? `${table.tableName}.*`
+                : selected.map((c) => q(table as TableDef<z.ZodRawShape>, c)).join(", "),
+            ];
+      const joinList = joins.flatMap((j) =>
+        j.select.map((c) => {
+          const col = j.table.sqlColumn(c);
+          return `${j.table.tableName}.${col} AS ${j.table.tableName}_${col}`;
+        }),
+      );
+      let sql = `SELECT ${[...baseList, ...joinList].join(", ")} FROM ${table.tableName}`;
+      for (const j of joins) {
+        const on = j.on
+          .map((o) => `${table.tableName}.${table.sqlColumn(o.left)} = ${j.table.tableName}.${j.table.sqlColumn(o.right)}`)
+          .join(" AND ");
+        sql += ` ${j.type} JOIN ${j.table.tableName} ON ${on}`;
+      }
       const { text, params } = buildFilter(table, wheres, orGroups);
       if (text) sql += ` WHERE ${text}`;
       if (orderBys.length > 0) {
