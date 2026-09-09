@@ -1,0 +1,12 @@
+{
+  "name": "rachisorm",
+  "private": true,
+  "type": "module",
+  "workspaces": ["packages/*", "bench"],
+  "scripts": {
+    "db:migrate": "bun scripts/migrate.ts up",
+    "db:status": "bun scripts/migrate.ts status",
+    "db:new": "bun scripts/migrate.ts new",
+    "db:generate": "bun scripts/migrate.ts generate"
+  }
+}
