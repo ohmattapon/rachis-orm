@@ -104,6 +104,19 @@ const page2 = await execute<User>(
 Sort columns pass the same whitelist as everything else. Bad directions throw
 at call time, bad counts throw at call time.
 
+## Counting
+
+`.count()` keeps the filters and drops everything else (select, order, limit,
+joins). PostgreSQL returns the total as a string, so convert it yourself.
+
+```ts
+const rows = await execute<{ count: string }>(
+  db,
+  query(users).where({ col: "status", op: "=", val: "active" }).count().toSQL(),
+);
+const total = Number(rows[0].count);
+```
+
 ## Joins
 
 `.join()` takes the other table, the join type, equality conditions, and which

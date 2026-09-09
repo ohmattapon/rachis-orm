@@ -103,6 +103,23 @@ test("orWhere on update shares numbering after SET", () => {
   expect(q.params).toEqual(["x", 1, 2]);
 });
 
+test("count keeps filters, drops select/order/limit", () => {
+  const q = query(users)
+    .select("id")
+    .where({ col: "status", op: "=", val: "active" })
+    .orWhere([
+      { col: "age", op: "<", val: 18 },
+      { col: "age", op: ">", val: 60 },
+    ])
+    .orderBy("age")
+    .limit(10)
+    .count()
+    .toSQL();
+  expect(q.sql).toBe("SELECT COUNT(*) AS count FROM users WHERE status = $1 AND (age < $2 OR age > $3)");
+  expect(q.params).toEqual(["active", 18, 60]);
+  expect(query(users).count().toSQL().sql).toBe("SELECT COUNT(*) AS count FROM users");
+});
+
 test("empty IN/NOT IN throws instead of emitting IN ()", () => {
   const b = query(users).select("id");
   expect(() => b.where({ col: "id", op: "IN", val: [] }).toSQL()).toThrow();
