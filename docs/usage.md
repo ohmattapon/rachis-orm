@@ -61,8 +61,7 @@ await execute(db,
   query(users).delete().where({ col: "id", op: "=", val: 1 }).toSQL());
 ```
 
-`insert` returns the added row through `RETURNING *`. `update` returns no rows,
-so select again when the updated values matter.
+`insert` and `update` return the affected rows through `RETURNING *`.
 
 ## Safety rules
 

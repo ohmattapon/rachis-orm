@@ -182,7 +182,7 @@ function createUpdateBuilder<Shape extends z.ZodRawShape>(
       const setParams = keys.map((k) => patch[k]);
       const { clause, params: whereParams } = buildWhere(table, wheres, setParams.length);
       return {
-        sql: `UPDATE ${table.tableName} SET ${setParts.join(", ")} WHERE ${clause}`,
+        sql: `UPDATE ${table.tableName} SET ${setParts.join(", ")} WHERE ${clause} RETURNING *`,
         params: [...setParams, ...whereParams],
       };
     },

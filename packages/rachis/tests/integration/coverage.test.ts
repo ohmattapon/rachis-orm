@@ -70,6 +70,14 @@ run("BETWEEN / IN / NOT IN / NOT LIKE / expressive raw on live PG", async () => 
       raw(todos, "status = $1 OR (age BETWEEN $2 AND $3)", ["done", 18, 28]).toSQL(),
     );
     expect(titles(viaRaw)).toEqual(["alpha", "delta", "epsilon", "gamma"]);
+
+    // Update returns the touched rows (RETURNING *).
+    const updated = await execute<{ title: string; status: string }>(
+      db,
+      query(todos).update({ status: "archived" }).where({ col: "title", op: "=", val: "beta" }).toSQL(),
+    );
+    expect(updated.length).toBe(1);
+    expect(updated[0]).toMatchObject({ title: "beta", status: "archived" });
   } finally {
     await sql`drop table if exists coverage_todos`;
   }
