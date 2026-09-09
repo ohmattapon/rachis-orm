@@ -1,4 +1,5 @@
 import type { z } from "zod";
+import { UnsafeFullTableError } from "./errors";
 import type { TableDef } from "./schema";
 
 export type ComparisonOp = "=" | "!=" | ">" | ">=" | "<" | "<=" | "LIKE" | "NOT LIKE";
@@ -23,6 +24,7 @@ function placeholders(start: number, count: number): string[] {
 function buildWhere<Shape extends z.ZodRawShape>(
   table: TableDef<Shape>,
   wheres: Where<Shape>[],
+  offset = 0,
 ): { clause: string; params: unknown[] } {
   const parts: string[] = [];
   const params: unknown[] = [];
@@ -35,20 +37,20 @@ function buildWhere<Shape extends z.ZodRawShape>(
         break;
       case "BETWEEN": {
         const [a, b] = w.val;
-        const [p1, p2] = placeholders(params.length + 1, 2);
+        const [p1, p2] = placeholders(params.length + 1 + offset, 2);
         parts.push(`${col} BETWEEN ${p1} AND ${p2}`);
         params.push(a, b);
         break;
       }
       case "IN":
       case "NOT IN": {
-        const ph = placeholders(params.length + 1, w.val.length);
+        const ph = placeholders(params.length + 1 + offset, w.val.length);
         parts.push(`${col} ${w.op} (${ph.join(", ")})`);
         params.push(...w.val);
         break;
       }
       default: {
-        const p = `$${params.length + 1}`;
+        const p = `$${params.length + 1 + offset}`;
         parts.push(`${col} ${w.op} ${p}`);
         params.push(w.val);
         break;
@@ -58,9 +60,28 @@ function buildWhere<Shape extends z.ZodRawShape>(
   return { clause: parts.join(" AND "), params };
 }
 
+export type RowInput<Shape extends z.ZodRawShape> = Partial<Record<keyof Shape & string, unknown>>;
+
 export interface SelectBuilder<Shape extends z.ZodRawShape> {
   select(...cols: (keyof Shape & string)[]): SelectBuilder<Shape>;
   where(clause: Where<Shape>): SelectBuilder<Shape>;
+  insert(row: RowInput<Shape>): InsertBuilder;
+  update(patch: RowInput<Shape>): UpdateBuilder<Shape>;
+  delete(): DeleteBuilder<Shape>;
+  toSQL(): BuiltQuery;
+}
+
+export interface InsertBuilder {
+  toSQL(): BuiltQuery;
+}
+
+export interface UpdateBuilder<Shape extends z.ZodRawShape> {
+  where(clause: Where<Shape>): UpdateBuilder<Shape>;
+  toSQL(): BuiltQuery;
+}
+
+export interface DeleteBuilder<Shape extends z.ZodRawShape> {
+  where(clause: Where<Shape>): DeleteBuilder<Shape>;
   toSQL(): BuiltQuery;
 }
 
@@ -80,6 +101,15 @@ function createBuilder<Shape extends z.ZodRawShape>(
     where(clause: Where<Shape>): SelectBuilder<Shape> {
       return createBuilder(table, selected, [...wheres, clause]);
     },
+    insert(row: RowInput<Shape>): InsertBuilder {
+      return createInsertBuilder(table, row);
+    },
+    update(patch: RowInput<Shape>): UpdateBuilder<Shape> {
+      return createUpdateBuilder(table, patch, []);
+    },
+    delete(): DeleteBuilder<Shape> {
+      return createDeleteBuilder(table, []);
+    },
     toSQL(): BuiltQuery {
       for (const c of selected) table.assertColumn(c);
       const selectList = selected.length === 0 ? "*" : selected.map((c) => table.sqlColumn(c)).join(", ");
@@ -87,6 +117,67 @@ function createBuilder<Shape extends z.ZodRawShape>(
       const { clause, params } = buildWhere(table, wheres);
       if (clause) sql += ` WHERE ${clause}`;
       return { sql, params };
+    },
+  };
+}
+
+function createInsertBuilder<Shape extends z.ZodRawShape>(
+  table: TableDef<Shape>,
+  row: RowInput<Shape>,
+): InsertBuilder {
+  return {
+    toSQL(): BuiltQuery {
+      const keys = Object.keys(row) as (keyof Shape & string)[];
+      const cols = keys.map((k) => table.sqlColumn(k));
+      const vals = keys.map((k) => row[k]);
+      const ph = placeholders(1, keys.length);
+      return {
+        sql: `INSERT INTO ${table.tableName} (${cols.join(", ")}) VALUES (${ph.join(", ")}) RETURNING *`,
+        params: vals,
+      };
+    },
+  };
+}
+
+function createUpdateBuilder<Shape extends z.ZodRawShape>(
+  table: TableDef<Shape>,
+  patch: RowInput<Shape>,
+  wheres: Where<Shape>[],
+): UpdateBuilder<Shape> {
+  return {
+    where(clause: Where<Shape>): UpdateBuilder<Shape> {
+      return createUpdateBuilder(table, patch, [...wheres, clause]);
+    },
+    toSQL(): BuiltQuery {
+      if (wheres.length === 0) {
+        throw new UnsafeFullTableError(`UnsafeFullTable: update on ${table.tableName} without where is not allowed`);
+      }
+      const keys = Object.keys(patch) as (keyof Shape & string)[];
+      const setParts = keys.map((k, i) => `${table.sqlColumn(k)} = $${i + 1}`);
+      const setParams = keys.map((k) => patch[k]);
+      const { clause, params: whereParams } = buildWhere(table, wheres, setParams.length);
+      return {
+        sql: `UPDATE ${table.tableName} SET ${setParts.join(", ")} WHERE ${clause}`,
+        params: [...setParams, ...whereParams],
+      };
+    },
+  };
+}
+
+function createDeleteBuilder<Shape extends z.ZodRawShape>(
+  table: TableDef<Shape>,
+  wheres: Where<Shape>[],
+): DeleteBuilder<Shape> {
+  return {
+    where(clause: Where<Shape>): DeleteBuilder<Shape> {
+      return createDeleteBuilder(table, [...wheres, clause]);
+    },
+    toSQL(): BuiltQuery {
+      if (wheres.length === 0) {
+        throw new UnsafeFullTableError(`UnsafeFullTable: delete on ${table.tableName} without where is not allowed`);
+      }
+      const { clause, params } = buildWhere(table, wheres);
+      return { sql: `DELETE FROM ${table.tableName} WHERE ${clause}`, params };
     },
   };
 }
