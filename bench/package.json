@@ -1,0 +1,11 @@
+{
+  "name": "bench",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "drizzle-orm": "^0.44.0",
+    "mitata": "^1.0.0",
+    "postgres": "^3.4.0",
+    "zod": "^3"
+  }
+}
