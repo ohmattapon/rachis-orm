@@ -75,6 +75,15 @@ test("raw hatch rejects ; -- /* and param mismatch", () => {
   expect(() => raw(users, "status = 'active'", []).toSQL()).toThrow("UnsafeRaw");
 });
 
+test("malicious operator string is rejected at build time", () => {
+  expect(() =>
+    query(users).select("id").where({ col: "status", op: "= 1 OR 1=1 --" as never, val: "x" }).toSQL(),
+  ).toThrow("UnknownOperator");
+  expect(() =>
+    query(users).update({ status: "x" }).where({ col: "id", op: "!=" as never, val: 1 }).toSQL(),
+  ).not.toThrow();
+});
+
 test("full-table update/delete without where is blocked", () => {
   expect(() => query(users).update({ status: "x" }).toSQL()).toThrow("UnsafeFullTable");
   expect(() => query(users).delete().toSQL()).toThrow("UnsafeFullTable");

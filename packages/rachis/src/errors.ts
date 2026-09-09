@@ -29,3 +29,11 @@ export class UnsafeRawError extends Error {
     this.name = "UnsafeRawError";
   }
 }
+
+export class UnknownOperatorError extends Error {
+  readonly code = "UnknownOperator";
+  constructor(message: string) {
+    super(message);
+    this.name = "UnknownOperatorError";
+  }
+}

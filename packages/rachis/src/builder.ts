@@ -1,8 +1,24 @@
 import type { z } from "zod";
-import { UnsafeFullTableError } from "./errors";
+import { UnknownOperatorError, UnsafeFullTableError } from "./errors";
 import type { TableDef } from "./schema";
 
 export type ComparisonOp = "=" | "!=" | ">" | ">=" | "<" | "<=" | "LIKE" | "NOT LIKE";
+
+const OPERATORS: ReadonlySet<string> = new Set([
+  "=",
+  "!=",
+  ">",
+  ">=",
+  "<",
+  "<=",
+  "LIKE",
+  "NOT LIKE",
+  "IN",
+  "NOT IN",
+  "BETWEEN",
+  "IS NULL",
+  "IS NOT NULL",
+]);
 
 export type Where<Shape extends z.ZodRawShape> =
   | { col: keyof Shape & string; op: ComparisonOp; val: unknown }
@@ -29,6 +45,9 @@ function buildWhere<Shape extends z.ZodRawShape>(
   const parts: string[] = [];
   const params: unknown[] = [];
   for (const w of wheres) {
+    if (!OPERATORS.has(w.op)) {
+      throw new UnknownOperatorError(`UnknownOperator: ${String(w.op)} is not a supported operator`);
+    }
     const col = table.sqlColumn(w.col);
     switch (w.op) {
       case "IS NULL":
