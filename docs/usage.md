@@ -104,6 +104,26 @@ const page2 = await execute<User>(
 Sort columns pass the same whitelist as everything else. Bad directions throw
 at call time, bad counts throw at call time.
 
+## Joins
+
+`.join()` takes the other table, the join type, equality conditions, and which
+of its columns to bring along. Results stay flat: base columns keep their
+names, joined columns arrive prefixed as `<table>_<column>`. No relation
+system hides underneath. Filters in `where()` still resolve against the base
+table only; anything fancier goes through `raw()`.
+
+```ts
+const rows = await execute<{ name: string; posts_title: string | null }>(
+  db,
+  query(users)
+    .select("name")
+    .join(posts, { type: "LEFT", on: [{ left: "id", right: "userId" }], select: ["title"] })
+    .toSQL(),
+);
+// SELECT users.name, posts.title AS posts_title FROM users
+// LEFT JOIN posts ON users.id = posts.user_id
+```
+
 ## Transactions
 
 Wrap several queries in one transaction with `transaction()`. Returning commits,
