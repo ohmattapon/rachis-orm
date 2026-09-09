@@ -1,7 +1,7 @@
 import type { z } from "zod";
-import type { BuiltQuery } from "./builder";
-import { UnsafeRawError } from "./errors";
-import type { TableDef } from "./schema";
+import type { BuiltQuery } from "./builder.ts";
+import { UnsafeRawError } from "./errors.ts";
+import type { TableDef } from "./schema.ts";
 
 export interface Db {
   query(sql: string, params: unknown[]): Promise<unknown[]>;

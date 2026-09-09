@@ -245,13 +245,37 @@ query with its SQL, params, and duration. Entries fire on failures too, so
 broken queries never go silent. Slow-query detection stays on your side.
 
 ```ts
-import { withLogging } from "@internal/rachis";
+import { withLogging } from "rachis-orm";
 
 const db = withLogging(toDb(sql), (entry) => {
   if (entry.durationMs > 100) console.warn("slow query", entry);
   if (entry.error) console.error("failed query", entry);
 });
 ```
+
+## Node.js support
+
+The core never imports `bun` itself, so it runs on Node unchanged. Use
+`node-postgres` (`pg`) and the `rachis-orm/pg` adapter instead of `toDb`.
+
+```bash
+npm install rachis-orm pg
+```
+
+```ts
+import { Pool } from "pg";
+import { defineTable, query, execute, transaction } from "rachis-orm";
+import { toPgPool } from "rachis-orm/pg";
+
+const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+const db = toPgPool(pool);
+
+const rows = await execute<User>(db, query(users).select("id").toSQL());
+```
+
+`transaction()` on Node takes the `pg` Pool through the same helper shape;
+`pool.end()` closes it. The builder, guards, logging, and count behave
+identically on both runtimes.
 
 Rachis sets no timeouts itself. Cap runaway queries at the connection level
 instead, either in the URL or on the role.

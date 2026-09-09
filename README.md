@@ -27,8 +27,9 @@ repositories, migrations, and tests. Measured numbers live in the
 - PostgreSQL, supported
 - Everything else, not in v1
 
-Bun works natively through `Bun.sql`. Node needs a small adapter wrapping `pg`
-or `postgres-js` into the `Db` interface, about ten lines. The same shape fits
+Bun works natively through `Bun.sql` and `toDb`. Node works through
+`node-postgres` and the `rachis-orm/pg` adapter (`toPgPool`) — the builder,
+guards, and logging behave identically on both runtimes. The same shape fits
 any API framework since Rachis never sees HTTP.
 
 ## v1 limits

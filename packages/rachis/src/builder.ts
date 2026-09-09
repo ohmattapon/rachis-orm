@@ -1,6 +1,6 @@
 import type { z } from "zod";
-import { UnknownOperatorError, UnsafeFullTableError } from "./errors";
-import type { TableDef } from "./schema";
+import { UnknownOperatorError, UnsafeFullTableError } from "./errors.ts";
+import type { TableDef } from "./schema.ts";
 
 export type ComparisonOp = "=" | "!=" | ">" | ">=" | "<" | "<=" | "LIKE" | "NOT LIKE";
 

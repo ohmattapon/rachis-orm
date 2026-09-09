@@ -1,4 +1,4 @@
-import type { Db } from "./executor";
+import type { Db } from "./executor.ts";
 
 export interface QueryLogEntry {
   sql: string;

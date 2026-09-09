@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { UnknownColumnError } from "./errors";
+import { UnknownColumnError } from "./errors.ts";
 
 export interface DefineTableOptions {
   columnMap?: Record<string, string>;
