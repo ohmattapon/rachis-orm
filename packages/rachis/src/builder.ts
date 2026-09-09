@@ -81,9 +81,19 @@ function buildWhere<Shape extends z.ZodRawShape>(
 
 export type RowInput<Shape extends z.ZodRawShape> = Partial<Record<keyof Shape & string, unknown>>;
 
+export type OrderDir = "ASC" | "DESC";
+
+export interface OrderClause<Shape extends z.ZodRawShape> {
+  col: keyof Shape & string;
+  dir: OrderDir;
+}
+
 export interface SelectBuilder<Shape extends z.ZodRawShape> {
   select(...cols: (keyof Shape & string)[]): SelectBuilder<Shape>;
   where(clause: Where<Shape>): SelectBuilder<Shape>;
+  orderBy(col: keyof Shape & string, dir?: OrderDir): SelectBuilder<Shape>;
+  limit(n: number): SelectBuilder<Shape>;
+  offset(n: number): SelectBuilder<Shape>;
   insert(row: RowInput<Shape>): InsertBuilder;
   update(patch: RowInput<Shape>): UpdateBuilder<Shape>;
   delete(): DeleteBuilder<Shape>;
@@ -112,13 +122,41 @@ function createBuilder<Shape extends z.ZodRawShape>(
   table: TableDef<Shape>,
   selected: (keyof Shape & string)[],
   wheres: Where<Shape>[],
+  orderBys: OrderClause<Shape>[] = [],
+  limitVal?: number,
+  offsetVal?: number,
 ): SelectBuilder<Shape> {
+  const next = (
+    selectedNext: (keyof Shape & string)[],
+    wheresNext: Where<Shape>[],
+    orderBysNext: OrderClause<Shape>[] = orderBys,
+    limitNext: number | undefined = limitVal,
+    offsetNext: number | undefined = offsetVal,
+  ): SelectBuilder<Shape> => createBuilder(table, selectedNext, wheresNext, orderBysNext, limitNext, offsetNext);
   return {
     select(...cols: (keyof Shape & string)[]): SelectBuilder<Shape> {
-      return createBuilder(table, [...selected, ...cols], wheres);
+      return next([...selected, ...cols], wheres);
     },
     where(clause: Where<Shape>): SelectBuilder<Shape> {
-      return createBuilder(table, selected, [...wheres, clause]);
+      return next(selected, [...wheres, clause]);
+    },
+    orderBy(col: keyof Shape & string, dir: OrderDir = "ASC"): SelectBuilder<Shape> {
+      if (dir !== "ASC" && dir !== "DESC") {
+        throw new UnknownOperatorError(`UnknownOperator: ${String(dir)} is not a valid sort direction`);
+      }
+      return next(selected, wheres, [...orderBys, { col, dir }]);
+    },
+    limit(n: number): SelectBuilder<Shape> {
+      if (!Number.isInteger(n) || n < 0) {
+        throw new Error(`limit must be a non-negative integer, got ${String(n)}`);
+      }
+      return next(selected, wheres, orderBys, n, offsetVal);
+    },
+    offset(n: number): SelectBuilder<Shape> {
+      if (!Number.isInteger(n) || n < 0) {
+        throw new Error(`offset must be a non-negative integer, got ${String(n)}`);
+      }
+      return next(selected, wheres, orderBys, limitVal, n);
     },
     insert(row: RowInput<Shape>): InsertBuilder {
       return createInsertBuilder(table, row);
@@ -135,6 +173,17 @@ function createBuilder<Shape extends z.ZodRawShape>(
       let sql = `SELECT ${selectList} FROM ${table.tableName}`;
       const { clause, params } = buildWhere(table, wheres);
       if (clause) sql += ` WHERE ${clause}`;
+      if (orderBys.length > 0) {
+        sql += ` ORDER BY ${orderBys.map((o) => `${table.sqlColumn(o.col)} ${o.dir}`).join(", ")}`;
+      }
+      if (limitVal !== undefined) {
+        sql += ` LIMIT $${params.length + 1}`;
+        params.push(limitVal);
+      }
+      if (offsetVal !== undefined) {
+        sql += ` OFFSET $${params.length + 1}`;
+        params.push(offsetVal);
+      }
       return { sql, params };
     },
   };

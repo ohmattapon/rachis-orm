@@ -63,6 +63,27 @@ await execute(db,
 
 `insert` and `update` return the affected rows through `RETURNING *`.
 
+## Ordering and pagination
+
+`.orderBy()` accumulates and defaults to ascending. `.limit()` and `.offset()`
+take non-negative integers and travel as params like everything else.
+
+```ts
+const page2 = await execute<User>(
+  db,
+  query(users)
+    .select("id", "firstName")
+    .where({ col: "status", op: "=", val: "active" })
+    .orderBy("age", "DESC")
+    .limit(20)
+    .offset(20)
+    .toSQL(),
+);
+```
+
+Sort columns pass the same whitelist as everything else. Bad directions throw
+at call time, bad counts throw at call time.
+
 ## Safety rules
 
 An `update` or `delete` without `where` throws at once. No bypass exists in v1.

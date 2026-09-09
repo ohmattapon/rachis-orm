@@ -4,8 +4,8 @@ A small TypeScript ORM for Bun + PostgreSQL. No decorators, no codegen, no magic
 
 [Usage](./docs/usage.md) • [Benchmark](./docs/benchmark.md) • [License](./LICENSE)
 
-> v1 covers CRUD with AND-only filters on PostgreSQL. No joins, no relations,
-> no `limit` / `offset` / `orderBy` yet.
+> v1 covers CRUD with AND-only filters, ordering, and pagination on PostgreSQL.
+> No joins, no relations yet.
 
 ## What's Rachis?
 
