@@ -1,6 +1,6 @@
 {
   "name": "rachis-orm",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "A small TypeScript ORM for Bun + PostgreSQL. No decorators, no codegen, no magic.",
   "license": "MIT",
   "repository": {
@@ -15,7 +15,11 @@
     "./pg": "./src/adapter-pg.ts",
     "./package.json": "./package.json"
   },
-  "files": ["src", "LICENSE", "README.md"],
+  "files": [
+    "src",
+    "LICENSE",
+    "README.md"
+  ],
   "scripts": {
     "test": "bun test ./tests/",
     "typecheck": "bunx tsc --noEmit -p ./tsconfig.json"
