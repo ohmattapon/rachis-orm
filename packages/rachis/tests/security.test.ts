@@ -2,7 +2,8 @@ import { expect, test } from "bun:test";
 import { z } from "zod";
 import { defineTable } from "../src/schema";
 import { query } from "../src/builder";
-import { raw } from "../src/executor";
+import { raw, type Db } from "../src/executor";
+import { withLogging, type QueryLogEntry } from "../src/logging";
 
 // Adversarial suite: every classic injection shape must either be
 // neutralized by parameterization or rejected at build time.
@@ -88,3 +89,63 @@ test("full-table update/delete without where is blocked", () => {
   expect(() => query(users).update({ status: "x" }).toSQL()).toThrow("UnsafeFullTable");
   expect(() => query(users).delete().toSQL()).toThrow("UnsafeFullTable");
 });
+
+test("table name and columnMap overrides must be safe SQL identifiers", () => {
+  expect(() =>
+    defineTable("users; DROP TABLE users; --", z.object({ id: z.number() })),
+  ).toThrow("UnknownTable");
+  expect(() =>
+    defineTable("users", z.object({ id: z.number() }), {
+      columnMap: { id: "id; DROP TABLE users; --" },
+    }),
+  ).toThrow("UnknownColumn");
+});
+
+test("prototype methods on columnMap do not collide into SQL", () => {
+  const tProto = defineTable("users", z.object({ toString: z.string() }));
+  expect(tProto.sqlColumn("toString")).toBe("to_string");
+  const tProtoWithMap = defineTable("users", z.object({ toString: z.string() }), { columnMap: {} });
+  expect(tProtoWithMap.sqlColumn("toString")).toBe("to_string");
+});
+
+test("IN/NOT IN and BETWEEN enforce array validation", () => {
+  expect(() =>
+    query(users).where({ col: "title", op: "IN", val: "admin" as never }).toSQL(),
+  ).toThrow("requires an array of values");
+  expect(() =>
+    query(users).where({ col: "id", op: "BETWEEN", val: [1] as never }).toSQL(),
+  ).toThrow("BETWEEN requires an array of exactly 2 values");
+  expect(() =>
+    query(users).where({ col: "id", op: "BETWEEN", val: null as never }).toSQL(),
+  ).toThrow("BETWEEN requires an array of exactly 2 values");
+});
+
+test("raw hatch rejects UNION injection and excessive placeholders", () => {
+  expect(() =>
+    raw(users, "id = $1 UNION SELECT username, password, 1 FROM admins WHERE '1' = $2", [1, "1"]).toSQL(),
+  ).toThrow("UnsafeRaw");
+  expect(() =>
+    raw(users, "id = $1 AND id = $10001", new Array(10001).fill(1)).toSQL(),
+  ).toThrow("UnsafeRaw");
+});
+
+test("optional runtime validation in insert and update catches invalid data", () => {
+  expect(() =>
+    query(users).insert({ id: "wrong" as never, title: "ok", status: "ok" }, { validate: true }).toSQL(),
+  ).toThrow();
+  expect(() =>
+    query(users).update({ id: "wrong" as never }, { validate: true }).where({ col: "id", op: "=", val: 1 }).toSQL(),
+  ).toThrow();
+});
+
+test("withLogging redacts parameters when maskParams is enabled", async () => {
+  const fakeDb: Db = {
+    query: async (sql: string, params: unknown[]) => [{ sql, params }],
+  };
+  const seen: QueryLogEntry[] = [];
+  const db = withLogging(fakeDb, (e) => seen.push(e), { maskParams: true });
+  await db.query("SELECT * FROM users WHERE password = $1", ["super_secret_password"]);
+  expect(seen.length).toBe(1);
+  expect(seen[0].params).toEqual(["[REDACTED]"]);
+});
+

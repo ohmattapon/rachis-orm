@@ -19,7 +19,12 @@ export function assertSafeRaw(tableName: string, sqlFragment: string, params: un
   if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(tableName)) {
     throw new UnsafeRawError(`UnsafeRaw: unknown table ${tableName}`);
   }
-  if (sqlFragment.includes(";") || sqlFragment.includes("--") || sqlFragment.includes("/*")) {
+  if (
+    sqlFragment.includes(";") ||
+    sqlFragment.includes("--") ||
+    sqlFragment.includes("/*") ||
+    /\b(UNION|DROP|ALTER|TRUNCATE)\b/i.test(sqlFragment)
+  ) {
     throw new UnsafeRawError(`UnsafeRaw: fragment contains forbidden token`);
   }
   let max = 0;
@@ -28,6 +33,9 @@ export function assertSafeRaw(tableName: string, sqlFragment: string, params: un
     const n = Number(m[1]);
     seen.add(n);
     if (n > max) max = n;
+  }
+  if (max > 10000) {
+    throw new UnsafeRawError(`UnsafeRaw: excessive placeholder count ${max}`);
   }
   if (params.length === 0 || params.length !== max) {
     throw new UnsafeRawError(`UnsafeRaw: params length ${params.length} does not match $n max ${max}`);

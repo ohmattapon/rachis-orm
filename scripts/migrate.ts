@@ -25,6 +25,8 @@ const stamp = (): string => {
   return `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}`;
 };
 
+const escapeId = (id: string): string => `"${id.replace(/"/g, '""')}"`;
+
 // Convention (documented in the emitted file header, review before applying):
 //   id: number            -> SERIAL PRIMARY KEY
 //   number                -> INTEGER      string -> TEXT
@@ -33,7 +35,7 @@ const stamp = (): string => {
 //   .default(literal)     -> DB DEFAULT for string/number/boolean literals
 // Anything else throws instead of guessing.
 const pgColumn = (col: string, field: unknown): string => {
-  const name = `"${autoMap(col)}"`;
+  const name = escapeId(autoMap(col));
   let t = field as { _def?: { typeName?: string; innerType?: unknown; defaultValue?: unknown } };
   let nullable = false;
   let defaultClause = "";
@@ -112,8 +114,8 @@ const createStmts = (tables: GenTable[]): { ups: string[]; downs: string[] } => 
   const downs: string[] = [];
   for (const t of tables) {
     const cols = Object.entries(t.shape).map(([col, field]) => `  ${pgColumn(col, field)}`);
-    ups.push(`CREATE TABLE IF NOT EXISTS "${t.tableName}" (\n${cols.join(",\n")}\n);`);
-    downs.push(`DROP TABLE IF EXISTS "${t.tableName}";`);
+    ups.push(`CREATE TABLE IF NOT EXISTS ${escapeId(t.tableName)} (\n${cols.join(",\n")}\n);`);
+    downs.push(`DROP TABLE IF EXISTS ${escapeId(t.tableName)};`);
   }
   return { ups, downs };
 };
@@ -145,10 +147,20 @@ try {
       console.log(`applied: ${applied.size}, pending: ${pending.length}`);
       for (const f of pending) console.log(`  pending ${f}`);
     } else if (cmd === "up") {
-      for (const f of pending) {
-        await sql.unsafe(await readFile(join(dir, f), "utf8"));
-        await sql`insert into rachis_migrations (name) values (${f})`;
-        console.log(`applied ${f}`);
+      if (pending.length > 0) {
+        await sql`select pg_advisory_lock(hashtext('rachis_migrations'))`;
+        try {
+          for (const f of pending) {
+            const content = await readFile(join(dir, f), "utf8");
+            await sql.begin(async (tx) => {
+              await tx.unsafe(content);
+              await tx`insert into rachis_migrations (name) values (${f})`;
+            });
+            console.log(`applied ${f}`);
+          }
+        } finally {
+          await sql`select pg_advisory_unlock(hashtext('rachis_migrations'))`;
+        }
       }
       if (pending.length === 0) console.log("up to date");
     } else if (cmd === "generate") {

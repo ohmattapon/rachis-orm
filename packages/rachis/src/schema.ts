@@ -1,8 +1,16 @@
 import { z } from "zod";
-import { UnknownColumnError } from "./errors.ts";
+import { UnknownColumnError, UnknownRelationError, UnknownTableError } from "./errors.ts";
 
 export interface DefineTableOptions {
   columnMap?: Record<string, string>;
+  // Declared relations, resolved lazily so circular table definitions work.
+  // "many": one-to-many — the RELATED table holds the FK; `fk` names that column on the related table.
+  // "one": belongs-to — THIS table holds the FK; `fk` names the local column.
+  // `ref` names the referenced column on the pointed-at side (defaults to "id").
+  relations?: Record<
+    string,
+    { table: () => TableDef<z.ZodRawShape>; type: "many" | "one"; fk: string; ref?: string }
+  >;
 }
 
 export function autoMap(name: string): string {
@@ -10,9 +18,20 @@ export function autoMap(name: string): string {
 }
 
 function resolveColumn(name: string, columnMap?: Record<string, string>): string {
-  const override = columnMap?.[name];
-  if (override !== undefined) return override;
+  if (columnMap && Object.prototype.hasOwnProperty.call(columnMap, name)) {
+    return columnMap[name]!;
+  }
   return autoMap(name);
+}
+
+export interface TableRelation {
+  name: string;
+  table: TableDef<z.ZodRawShape>;
+  type: "many" | "one";
+  // For "many": FK column on the related table. For "one": FK column on this table.
+  fk: string;
+  // Referenced column on the pointed-at side (defaults to "id").
+  ref: string;
 }
 
 export interface TableDef<Shape extends z.ZodRawShape> {
@@ -21,6 +40,7 @@ export interface TableDef<Shape extends z.ZodRawShape> {
   columns: (keyof Shape & string)[];
   assertColumn(col: string): void;
   sqlColumn(col: string): string;
+  relation(name: string): TableRelation;
 }
 
 export function defineTable<Shape extends z.ZodRawShape>(
@@ -28,6 +48,16 @@ export function defineTable<Shape extends z.ZodRawShape>(
   zodSchema: z.ZodObject<Shape>,
   opts?: DefineTableOptions,
 ): TableDef<Shape> {
+  if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(tableName)) {
+    throw new UnknownTableError(`UnknownTable: ${tableName} is not a valid table name`);
+  }
+  if (opts?.columnMap) {
+    for (const [, mapped] of Object.entries(opts.columnMap)) {
+      if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(mapped)) {
+        throw new UnknownColumnError(`UnknownColumn: mapped column ${mapped} is not a valid column name`);
+      }
+    }
+  }
   const columns = Object.keys(zodSchema.shape) as (keyof Shape & string)[];
   const columnSet = new Set<string>(columns);
 
@@ -42,5 +72,13 @@ export function defineTable<Shape extends z.ZodRawShape>(
     return resolveColumn(col, opts?.columnMap);
   }
 
-  return { tableName, schema: zodSchema, columns, assertColumn, sqlColumn };
+  function relation(name: string): TableRelation {
+    const rel = opts?.relations?.[name];
+    if (!rel) {
+      throw new UnknownRelationError(`UnknownRelation: ${name} is not a relation of table ${tableName}`);
+    }
+    return { name, table: rel.table(), type: rel.type, fk: rel.fk, ref: rel.ref ?? "id" };
+  }
+
+  return { tableName, schema: zodSchema, columns, assertColumn, sqlColumn, relation };
 }
