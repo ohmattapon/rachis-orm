@@ -56,6 +56,9 @@ function buildWhere<Shape extends z.ZodRawShape>(
         parts.push(`${col} ${w.op}`);
         break;
       case "BETWEEN": {
+        if (!Array.isArray(w.val) || w.val.length !== 2) {
+          throw new Error("BETWEEN requires an array of exactly 2 values");
+        }
         const [a, b] = w.val;
         const [p1, p2] = placeholders(params.length + 1 + offset, 2);
         parts.push(`${col} BETWEEN ${p1} AND ${p2}`);
@@ -64,6 +67,9 @@ function buildWhere<Shape extends z.ZodRawShape>(
       }
       case "IN":
       case "NOT IN": {
+        if (!Array.isArray(w.val)) {
+          throw new Error(`${w.op} requires an array of values`);
+        }
         if (w.val.length === 0) {
           throw new Error(`${w.op} requires at least one value (empty list would emit invalid SQL)`);
         }
@@ -136,6 +142,10 @@ interface StoredJoin {
   select: string[];
 }
 
+export interface MutationOptions {
+  validate?: boolean;
+}
+
 export interface SelectBuilder<Shape extends z.ZodRawShape> {
   select(...cols: (keyof Shape & string)[]): SelectBuilder<Shape>;
   where(clause: Where<Shape>): SelectBuilder<Shape>;
@@ -146,8 +156,8 @@ export interface SelectBuilder<Shape extends z.ZodRawShape> {
   limit(n: number): SelectBuilder<Shape>;
   offset(n: number): SelectBuilder<Shape>;
   count(): CountBuilder;
-  insert(row: RowInput<Shape>): InsertBuilder;
-  update(patch: RowInput<Shape>): UpdateBuilder<Shape>;
+  insert(row: RowInput<Shape>, options?: MutationOptions): InsertBuilder;
+  update(patch: RowInput<Shape>, options?: MutationOptions): UpdateBuilder<Shape>;
   delete(): DeleteBuilder<Shape>;
   toSQL(): BuiltQuery;
 }
@@ -258,11 +268,11 @@ function createBuilder<Shape extends z.ZodRawShape>(
     count(): CountBuilder {
       return createCountBuilder(table, wheres, orGroups);
     },
-    insert(row: RowInput<Shape>): InsertBuilder {
-      return createInsertBuilder(table, row);
+    insert(row: RowInput<Shape>, options?: MutationOptions): InsertBuilder {
+      return createInsertBuilder(table, row, options);
     },
-    update(patch: RowInput<Shape>): UpdateBuilder<Shape> {
-      return createUpdateBuilder(table, patch, []);
+    update(patch: RowInput<Shape>, options?: MutationOptions): UpdateBuilder<Shape> {
+      return createUpdateBuilder(table, patch, [], [], options);
     },
     delete(): DeleteBuilder<Shape> {
       return createDeleteBuilder(table, []);
@@ -327,9 +337,13 @@ function createCountBuilder<Shape extends z.ZodRawShape>(
 function createInsertBuilder<Shape extends z.ZodRawShape>(
   table: TableDef<Shape>,
   row: RowInput<Shape>,
+  options?: MutationOptions,
 ): InsertBuilder {
   return {
     toSQL(): BuiltQuery {
+      if (options?.validate) {
+        table.schema.parse(row);
+      }
       const keys = Object.keys(row) as (keyof Shape & string)[];
       if (keys.length === 0) {
         throw new UnsafeFullTableError(`UnsafeFullTable: insert on ${table.tableName} with empty row is not allowed`);
@@ -350,16 +364,20 @@ function createUpdateBuilder<Shape extends z.ZodRawShape>(
   patch: RowInput<Shape>,
   wheres: Where<Shape>[],
   orGroups: Where<Shape>[][] = [],
+  options?: MutationOptions,
 ): UpdateBuilder<Shape> {
   return {
     where(clause: Where<Shape>): UpdateBuilder<Shape> {
-      return createUpdateBuilder(table, patch, [...wheres, clause], orGroups);
+      return createUpdateBuilder(table, patch, [...wheres, clause], orGroups, options);
     },
     orWhere(clauses: Where<Shape>[]): UpdateBuilder<Shape> {
       requireNonEmptyGroup(clauses);
-      return createUpdateBuilder(table, patch, wheres, [...orGroups, clauses]);
+      return createUpdateBuilder(table, patch, wheres, [...orGroups, clauses], options);
     },
     toSQL(): BuiltQuery {
+      if (options?.validate) {
+        table.schema.partial().parse(patch);
+      }
       const keys = Object.keys(patch) as (keyof Shape & string)[];
       if (keys.length === 0) {
         throw new UnsafeFullTableError(`UnsafeFullTable: update on ${table.tableName} with empty patch is not allowed`);

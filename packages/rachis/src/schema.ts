@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { UnknownColumnError, UnknownRelationError } from "./errors.ts";
+import { UnknownColumnError, UnknownRelationError, UnknownTableError } from "./errors.ts";
 
 export interface DefineTableOptions {
   columnMap?: Record<string, string>;
@@ -18,8 +18,9 @@ export function autoMap(name: string): string {
 }
 
 function resolveColumn(name: string, columnMap?: Record<string, string>): string {
-  const override = columnMap?.[name];
-  if (override !== undefined) return override;
+  if (columnMap && Object.prototype.hasOwnProperty.call(columnMap, name)) {
+    return columnMap[name]!;
+  }
   return autoMap(name);
 }
 
@@ -47,6 +48,16 @@ export function defineTable<Shape extends z.ZodRawShape>(
   zodSchema: z.ZodObject<Shape>,
   opts?: DefineTableOptions,
 ): TableDef<Shape> {
+  if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(tableName)) {
+    throw new UnknownTableError(`UnknownTable: ${tableName} is not a valid table name`);
+  }
+  if (opts?.columnMap) {
+    for (const [, mapped] of Object.entries(opts.columnMap)) {
+      if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(mapped)) {
+        throw new UnknownColumnError(`UnknownColumn: mapped column ${mapped} is not a valid column name`);
+      }
+    }
+  }
   const columns = Object.keys(zodSchema.shape) as (keyof Shape & string)[];
   const columnSet = new Set<string>(columns);
 
